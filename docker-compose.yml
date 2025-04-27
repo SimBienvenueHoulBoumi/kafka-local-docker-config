@@ -1,0 +1,200 @@
+# Docker Compose configuration for a 3-broker Kafka cluster with Kafka UI
+#
+# Overview:
+# - Deploys a Kafka cluster using bitnami/kafka in KRaft mode (no ZooKeeper).
+# - Includes 3 Kafka brokers (kafka-1, kafka-2, kafka-3) and Kafka UI for management.
+# - Brokers are accessible externally on ports defined in .env (default: 29092, 29093, 29094).
+# - Kafka UI is accessible on port defined in .env (default: 8080).
+# - Uses healthchecks to ensure brokers are ready.
+# - Configures resource limits to prevent overuse of CPU/memory.
+# - Logs are capped at 30MB (3 files of 10MB) for debugging.
+# - Persists Kafka data in host directories (./kafka-1-data, ./kafka-2-data, ./kafka-3-data).
+#
+# Prerequisites:
+# - Docker and Docker Compose installed.
+# - Create a .env file in the same directory as this file with required variables (see .env example below).
+# - Alternatively, set the variables in the system environment.
+# - Ports defined in .env (default: 29092, 29093, 29094, 8080) must be free on the host.
+# - Ensure write permissions in the project directory to create data folders (./kafka-*-data).
+#
+# .env Example (place in same directory):
+# ```
+# HOST_ADDRESS=192.168.1.100
+# KAFKA_KRAFT_CLUSTER_ID=WnLkTHhk
+# KAFKA_EXTERNAL_PORT_1=29092
+# KAFKA_EXTERNAL_PORT_2=29093
+# KAFKA_EXTERNAL_PORT_3=29094
+# KAFKA_INTERNAL_PORT_1=9092
+# KAFKA_INTERNAL_PORT_2=9093
+# KAFKA_INTERNAL_PORT_3=9094
+# KAFKA_CONTROLLER_PORT=9091
+# KAFKA_UI_PORT=8080
+# KAFKA_UI_CLUSTER_NAME=local
+# ```
+#
+# Usage:
+# 1. Save this file as docker-compose.yml.
+# 2. Create a .env file in the same directory with the above variables, adjusting HOST_ADDRESS for your environment.
+# 3. Verify ports are free: `netstat -tuln | grep -E "${KAFKA_EXTERNAL_PORT_1}|${KAFKA_EXTERNAL_PORT_2}|${KAFKA_EXTERNAL_PORT_3}|${KAFKA_UI_PORT}"`.
+# 4. Start the cluster: `docker compose up -d`.
+# 5. Verify data directories are created: `ls -d kafka-*-data`.
+# 6. Access Kafka UI: http://localhost:${KAFKA_UI_PORT} or http://<HOST_ADDRESS>:${KAFKA_UI_PORT}.
+# 7. Connect external applications to <HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_1},${KAFKA_EXTERNAL_PORT_2},${KAFKA_EXTERNAL_PORT_3}.
+# 8. Check logs: `docker logs kafka-1-1` (and kafka-2-1, kafka-3-1).
+# 9. Verify health: `docker inspect kafka-1-1 --format '{{.State.Health.Status}}'`.
+# 10. Stop the cluster: `docker compose down` (data persists in ./kafka-*-data; add `-v` to remove managed volumes if any).
+#
+# External Application Configuration:
+# - Spring Boot (application.properties):
+#   ```
+#   spring.kafka.bootstrap-servers=<HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_1},<HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_2},<HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_3}
+#   ```
+# - Other Kafka clients: Use brokers <HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_1}, <HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_2}, <HOST_ADDRESS>:${KAFKA_EXTERNAL_PORT_3}.
+# - Replace <HOST_ADDRESS> with host.docker.internal (Windows/macOS) or the host IP (e.g., 192.168.1.100 for Linux).
+#
+# Troubleshooting:
+# - If data directories are not created, check permissions: `ls -ld .` and ensure the user has write access.
+# - If containers are unhealthy, check logs: `docker logs kafka-1-1`.
+# - Ensure ports defined in .env are not in use.
+# - Increase healthcheck start_period if brokers are slow to start.
+# - For Linux, if host.docker.internal fails, set HOST_ADDRESS to the host IP or use --add-host=host.docker.internal:host-gateway in Docker command.
+#
+# Production Recommendations:
+# - Configure SSL or SASL for secure connections (currently PLAINTEXT).
+# - Open firewall ports defined in .env for external access.
+# - Adjust resource limits based on workload.
+# - Consider removing Kafka UI if not needed.
+#
+services:
+  kafka-1:
+    image: bitnami/kafka:latest
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka-1:${KAFKA_CONTROLLER_PORT},2@kafka-2:${KAFKA_CONTROLLER_PORT},3@kafka-3:${KAFKA_CONTROLLER_PORT}
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:${KAFKA_INTERNAL_PORT_1},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT},EXTERNAL://0.0.0.0:${KAFKA_EXTERNAL_PORT_1}
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka-1:${KAFKA_INTERNAL_PORT_1},EXTERNAL://${HOST_ADDRESS}:${KAFKA_EXTERNAL_PORT_1}
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+    volumes:
+      - ./kafka-1-data:/bitnami/kafka
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_1}:${KAFKA_EXTERNAL_PORT_1}"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:${KAFKA_INTERNAL_PORT_1}"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - kafka-net
+
+  kafka-2:
+    image: bitnami/kafka:latest
+    environment:
+      - KAFKA_CFG_NODE_ID=2
+      - KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka-1:${KAFKA_CONTROLLER_PORT},2@kafka-2:${KAFKA_CONTROLLER_PORT},3@kafka-3:${KAFKA_CONTROLLER_PORT}
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:${KAFKA_INTERNAL_PORT_2},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT},EXTERNAL://0.0.0.0:${KAFKA_EXTERNAL_PORT_2}
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka-2:${KAFKA_INTERNAL_PORT_2},EXTERNAL://${HOST_ADDRESS}:${KAFKA_EXTERNAL_PORT_2}
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+    volumes:
+      - ./kafka-2-data:/bitnami/kafka
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_2}:${KAFKA_EXTERNAL_PORT_2}"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:${KAFKA_INTERNAL_PORT_2}"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - kafka-net
+
+  kafka-3:
+    image: bitnami/kafka:latest
+    environment:
+      - KAFKA_CFG_NODE_ID=3
+      - KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka-1:${KAFKA_CONTROLLER_PORT},2@kafka-2:${KAFKA_CONTROLLER_PORT},3@kafka-3:${KAFKA_CONTROLLER_PORT}
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:${KAFKA_INTERNAL_PORT_3},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT},EXTERNAL://0.0.0.0:${KAFKA_EXTERNAL_PORT_3}
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka-3:${KAFKA_INTERNAL_PORT_3},EXTERNAL://${HOST_ADDRESS}:${KAFKA_EXTERNAL_PORT_3}
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+    volumes:
+      - ./kafka-3-data:/bitnami/kafka
+    ports:
+      - "${KAFKA_EXTERNAL_PORT_3}:${KAFKA_EXTERNAL_PORT_3}"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:${KAFKA_INTERNAL_PORT_3}"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - kafka-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=${KAFKA_UI_CLUSTER_NAME}
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-1:${KAFKA_INTERNAL_PORT_1},kafka-2:${KAFKA_INTERNAL_PORT_2},kafka-3:${KAFKA_INTERNAL_PORT_3}
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - kafka-net
+
+networks:
+  kafka-net:
+    driver: bridge
