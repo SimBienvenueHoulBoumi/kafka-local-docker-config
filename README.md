@@ -100,6 +100,35 @@ Kafka is scary?
 **Not anymore.**  
 Now it’s just a fluffy bird carrying your messages safely across your apps. 🐥💬
 
+## Env
+
+```bash
+    # Network address for external access (use host IP for Linux, host.docker.internal for Windows/macOS)
+    HOST_ADDRESS= xxx.xxx.xxx.xxx
+
+    # Kafka KRaft cluster ID (Base64-encoded string, same for all brokers)
+    KAFKA_KRAFT_CLUSTER_ID=WnLkTHhk
+
+    # External ports for Kafka brokers
+    KAFKA_EXTERNAL_PORT_1=29092
+    KAFKA_EXTERNAL_PORT_2=29093
+    KAFKA_EXTERNAL_PORT_3=29094
+
+    # Internal ports for Kafka brokers
+    KAFKA_INTERNAL_PORT_1=9092
+    KAFKA_INTERNAL_PORT_2=9093
+    KAFKA_INTERNAL_PORT_3=9094
+
+    # Controller port for KRaft quorum
+    KAFKA_CONTROLLER_PORT=9091
+
+    # Kafka UI port
+    KAFKA_UI_PORT=8080
+
+    # Kafka UI cluster name
+    KAFKA_UI_CLUSTER_NAME=local
+```
+
 **Enjoy building awesome event-driven apps!** ✨
 
 ---
